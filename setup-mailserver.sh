@@ -63,6 +63,12 @@ echo "Finalizing permissions..."
 chown root:root "$SNI_CONF"
 chmod 644 "$SNI_CONF"
 
+echo "Cleaning up deprecated or invalid Postfix parameters..."
+postconf -X virtual_mailbox_limit_maps || true
+postconf -X virtual_maildir_extended || true
+postconf -X virtual_create_maildirsize || true
+sed -i '/^\s*mua_\(sender\|client\|helo\)_restrictions\s*=.*/d' /etc/postfix/master.cf
+
 echo "Restarting services..."
 systemctl restart postfix dovecot
 
