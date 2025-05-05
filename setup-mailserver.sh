@@ -33,7 +33,7 @@ echo "Configuring Dovecot auth mechanisms..."
 sed -i 's/^auth_mechanisms = .*/auth_mechanisms = plain login/' /etc/dovecot/conf.d/10-auth.conf
 
 echo "Enabling IMAPS and POP3S listeners..."
-sed -i '/^#\?protocols =/c\nprotocols = imap pop3' /etc/dovecot/dovecot.conf
+sed -i '/^#\?protocols =/c\protocols = imap pop3' /etc/dovecot/dovecot.conf
 cat <<EOF > /etc/dovecot/conf.d/10-master.conf
 service imap-login {
   inet_listener imaps {
