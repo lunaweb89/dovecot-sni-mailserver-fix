@@ -11,7 +11,11 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 if [ -z "$SERVER_HOSTNAME" ]; then
-    read -rp "Enter the server hostname (e.g., s01.lunaservers.xyz): " SERVER_HOSTNAME < /dev/tty
+    if [ -t 0 ]; then
+        read -rp "Enter the server hostname (e.g., s01.lunaservers.xyz): " SERVER_HOSTNAME
+    else
+        SERVER_HOSTNAME=$(sudo /usr/bin/env bash -c 'read -rp "Enter the server hostname (e.g., s01.lunaservers.xyz): " input && echo "$input"')
+    fi
 fi
 
 echo "Setting hostname in Postfix..."
