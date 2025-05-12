@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-# Default value for hostname
+# Prompt for hostname if not supplied via --hostname
 while [[ "$#" -gt 0 ]]; do
     case $1 in
         --hostname) SERVER_HOSTNAME="$2"; shift ;;
@@ -18,6 +18,10 @@ if [ -z "$SERVER_HOSTNAME" ]; then
     fi
 fi
 
+echo "Installing dovecot-lmtpd package for LMTP support..."
+apt update
+apt install -y dovecot-lmtpd
+
 echo "Setting hostname in Postfix..."
 postconf -e "myhostname = $SERVER_HOSTNAME"
 
@@ -32,13 +36,23 @@ postconf -e "smtpd_tls_loglevel = 1"
 echo "Configuring Dovecot auth mechanisms..."
 sed -i 's/^auth_mechanisms = .*/auth_mechanisms = plain login/' /etc/dovecot/conf.d/10-auth.conf
 
-echo "Enabling IMAPS and POP3S listeners..."
-sed -i '/^#\?protocols =/c\protocols = imap pop3' /etc/dovecot/dovecot.conf
+echo "Enabling IMAPS, POP3S, and LMTP protocols..."
+sed -i '/^#\?protocols =/c\protocols = imap pop3 lmtp' /etc/dovecot/dovecot.conf
+
+echo "Overwriting Dovecot imap-login + lmtp listener block..."
 cat <<EOF > /etc/dovecot/conf.d/10-master.conf
 service imap-login {
   inet_listener imaps {
     port = 993
     ssl = yes
+  }
+}
+
+service lmtp {
+  unix_listener /var/spool/postfix/private/dovecot-lmtp {
+    mode = 0600
+    user = postfix
+    group = postfix
   }
 }
 EOF
@@ -62,12 +76,6 @@ done
 echo "Finalizing permissions..."
 chown root:root "$SNI_CONF"
 chmod 644 "$SNI_CONF"
-
-echo "Cleaning up deprecated or invalid Postfix parameters..."
-postconf -X virtual_mailbox_limit_maps || true
-postconf -X virtual_maildir_extended || true
-postconf -X virtual_create_maildirsize || true
-sed -i '/^\s*mua_\(sender\|client\|helo\)_restrictions\s*=.*/d' /etc/postfix/master.cf
 
 echo "Restarting services..."
 systemctl restart postfix dovecot
