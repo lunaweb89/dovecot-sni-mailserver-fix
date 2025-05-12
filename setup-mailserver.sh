@@ -20,14 +20,16 @@ fi
 
 echo "Setting hostname in Postfix..."
 postconf -e "myhostname = $SERVER_HOSTNAME"
+postconf -# virtual_transport
 postconf -e "virtual_transport = lmtp:unix:private/dovecot-lmtp"
 
 echo "Ensuring STARTTLS settings..."
+postconf -# smtpd_tls_security_level
+postconf -# smtp_tls_security_level
+postconf -# smtpd_tls_auth_only
 postconf -e "smtpd_tls_security_level = may"
 postconf -e "smtp_tls_security_level = may"
 postconf -e "smtpd_tls_auth_only = yes"
-postconf -e "smtpd_tls_cert_file = /etc/ssl/certs/ssl-cert-snakeoil.pem"
-postconf -e "smtpd_tls_key_file = /etc/ssl/private/ssl-cert-snakeoil.key"
 postconf -e "smtpd_tls_loglevel = 1"
 
 echo "Configuring Dovecot auth mechanisms..."
@@ -53,13 +55,26 @@ service lmtp {
 }
 EOF
 
-echo "Appending secure SSL settings to 10-ssl.conf..."
+echo "Writing secure SSL settings to 10-ssl.conf..."
 SSL_CONF="/etc/dovecot/conf.d/10-ssl.conf"
-grep -q 'ssl = required' "$SSL_CONF" || cat <<'EOT' >> "$SSL_CONF"
+if [ -d /etc/letsencrypt/live ]; then
+    FIRST_CERT=$(find /etc/letsencrypt/live -mindepth 1 -maxdepth 1 -type d ! -name README | head -n 1)
+    if [[ -f "$FIRST_CERT/fullchain.pem" && -f "$FIRST_CERT/privkey.pem" ]]; then
+        SSL_CERT="$FIRST_CERT/fullchain.pem"
+        SSL_KEY="$FIRST_CERT/privkey.pem"
+    else
+        SSL_CERT="/etc/ssl/certs/ssl-cert-snakeoil.pem"
+        SSL_KEY="/etc/ssl/private/ssl-cert-snakeoil.key"
+    fi
+else
+    SSL_CERT="/etc/ssl/certs/ssl-cert-snakeoil.pem"
+    SSL_KEY="/etc/ssl/private/ssl-cert-snakeoil.key"
+fi
 
+cat <<EOT > "$SSL_CONF"
 ssl = required
-ssl_cert = </etc/letsencrypt/live/mail.greediersocialmedia.co.uk/fullchain.pem
-ssl_key = </etc/letsencrypt/live/mail.greediersocialmedia.co.uk/privkey.pem
+ssl_cert = <${SSL_CERT}
+ssl_key = <${SSL_KEY}
 ssl_min_protocol = TLSv1.2
 ssl_cipher_list = HIGH:!aNULL:!MD5
 ssl_prefer_server_ciphers = yes
@@ -70,16 +85,17 @@ EOT
 echo "Generating Dovecot SNI configuration..."
 SNI_CONF="/etc/dovecot/conf.d/10-ssl-sni.conf"
 echo "# Auto-generated SNI mapping" > "$SNI_CONF"
-
 for domain_path in /etc/letsencrypt/live/*/; do
     domain=$(basename "$domain_path")
-    if [[ "$domain" == "README" ]]; then continue; fi
+    [[ "$domain" == "README" ]] && continue
     if [[ -f "$domain_path/fullchain.pem" && -f "$domain_path/privkey.pem" ]]; then
-        echo "local_name $domain {" >> "$SNI_CONF"
-        echo "  ssl_cert = </etc/letsencrypt/live/$domain/fullchain.pem" >> "$SNI_CONF"
-        echo "  ssl_key  = </etc/letsencrypt/live/$domain/privkey.pem" >> "$SNI_CONF"
-        echo "}" >> "$SNI_CONF"
-        echo "" >> "$SNI_CONF"
+        cat <<DOM >> "$SNI_CONF"
+local_name $domain {
+  ssl_cert = </etc/letsencrypt/live/$domain/fullchain.pem
+  ssl_key  = </etc/letsencrypt/live/$domain/privkey.pem
+}
+
+DOM
     fi
 done
 
